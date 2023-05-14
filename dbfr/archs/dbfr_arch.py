@@ -234,7 +234,6 @@ class StyleGAN2GeneratorFusion(StyleGAN2GeneratorBilinear):
                 out,s = conv1(out, latent[:, i], noise=noise1,input_is_style=input_is_style)
             return_style = torch.cat(( return_style ,s),dim=1)
             # print(s.shape)
-
             # the conditions may have fewer levels
             if i < len(conditions):
                 # SFT part to combine the conditions
@@ -437,7 +436,7 @@ class DBFR(nn.Module):
         self.toRGB = nn.ModuleList()
         for i in range(3, self.log_size + 1):
             self.toRGB.append(EqualConv2d(channels[f'{2**i}'], 3, 1, stride=1, padding=0, bias=True, bias_init_val=0))
-            #self.toRGB.append(nn.Conv2d(channels[f'{2**i}'], 3, 1))
+        
         if different_w:
             linear_out_channel = (int(math.log(out_size, 2)) * 2 - 2) * num_style_feat
         else:
@@ -445,8 +444,7 @@ class DBFR(nn.Module):
 
         self.final_linear = EqualLinear(
             channels['4'] * 4 * 4, linear_out_channel, bias=True, bias_init_val=0, lr_mul=1, activation=None)
-        # self.final_linear = nn.Linear(channels['4'] * 4 * 4, linear_out_channel)
-        # the decoder: stylegan2 generator with SFT modulations
+
         self.stylegan_decoder = StyleGAN2GeneratorFusion(
             out_size=out_size,
             num_style_feat=num_style_feat,
@@ -456,26 +454,21 @@ class DBFR(nn.Module):
             narrow=narrow,
             sft_half=sft_half)
 
+        self.age_representation = nn.parameter.Parameter(torch.randn((10,16,512)))
+        self.gender_representation = nn.parameter.Parameter(torch.randn((2,16,512)))
+
         # load pre-trained stylegan2 model if necessary
         if decoder_load_path:
             self.stylegan_decoder.load_state_dict(
                 torch.load(decoder_load_path, map_location=lambda storage, loc: storage)['params_ema'],strict=False)
         # fix decoder without updating params
         if fix_decoder:
-        #    for _, param in self.stylegan_decoder.named_parameters():
-        #        param.requires_grad = False
-            num = 0
             for _, param in self.stylegan_decoder.named_parameters():
                 if 'modulated_conv.modulation'  not in _ or 'style'  not in _ :
                     param.requires_grad = False
                     if 'cal'  in _ or 'ad'  in _:
                         param.requires_grad = True
-                        num += 1
-                        print(_)
-                else:
-                    num += 1
-                    print(_)
-            print(num)
+    
         # for SFT modulations (scale and shift)
         self.condition_in1 = nn.ModuleList()
         self.condition_in2 = nn.ModuleList()
@@ -485,40 +478,14 @@ class DBFR(nn.Module):
                 sft_out_channels = out_channels
             else:
                 sft_out_channels = out_channels * 2
-            
             self.condition_in1.append(Bottleneck(out_channels,sft_out_channels))
             self.condition_in2.append(Bottleneck(out_channels,sft_out_channels))
-            '''
-            self.condition_scale.append(
-                nn.Sequential(
-                    EqualConv2d(out_channels, out_channels, 3, stride=1, padding=1, bias=True, bias_init_val=0),
-                    ScaledLeakyReLU(0.2),
-                    EqualConv2d(out_channels, sft_out_channels, 3, stride=1, padding=1, bias=True, bias_init_val=0),ScaledLeakyReLU(0.2)))
-            self.condition_shift.append(
-                nn.Sequential(
-                    EqualConv2d(out_channels, out_channels, 3, stride=1, padding=1, bias=True, bias_init_val=0),
-                    ScaledLeakyReLU(0.2),
-                    EqualConv2d(out_channels, sft_out_channels, 3, stride=1, padding=1, bias=True, bias_init_val=0),ScaledLeakyReLU(0.2)))
-            '''
-        self.mlp = MLP(600,512,256,8,weight_norm=True,normalize_mlp=True)
-        '''
-        for _, param in self.condition_scale.named_parameters():
-            param.requires_grad = False
-        for _, param in self.condition_shift.named_parameters():
-            param.requires_grad = False
-        for _, param in self.conv_body_first.named_parameters():
-            param.requires_grad = False
-        for _, param in self.conv_body_down.named_parameters():
-            param.requires_grad = False
-        for _, param in self.condition_scale.named_parameters():
-            param.requires_grad = False
-        '''
+            
 
 
 
 
-
-    def forward(self, x,age,y, input_age=True,return_latents=False, return_rgb=True, randomize_noise=True,style_codes=None,input_is_style=False):
+    def forward(self, x,age,gender,y, input_age=True,return_latents=False, return_rgb=True, randomize_noise=True,style_codes=None,input_is_style=False):
         """Forward function for GFPGANBilinear.
 
         Args:
@@ -538,17 +505,12 @@ class DBFR(nn.Module):
             unet_skips.insert(0, feat)
 
         feat = self.final_conv(feat)
-
-        if not input_age:
-            #original version
-            # style code
-            style_code = self.final_linear(feat.view(feat.size(0), -1))
-
-            if self.different_w:
-                style_code = style_code.view(style_code.size(0), -1, self.num_style_feat)
-        else:
-            style_code = self.mlp(age)
-
+        style_code = self.final_linear(feat.view(feat.size(0), -1))
+        if self.different_w:
+            style_code = style_code.view(style_code.size(0), -1, self.num_style_feat)
+        latent_age = (age.unsqueeze(2).unsqueeze(2) * self.age_representation).sum(dim=1)
+        latent_gender = (gender.unsqueeze(2).unsqueeze(2) * self.gender_representation).sum(dim=1)
+        style_code += latent_age + latent_gender
         # decode
         for i in range(self.log_size - 2):
             # add unet skip

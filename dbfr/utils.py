@@ -68,7 +68,7 @@ class DBFRer():
         self.dbfr = self.dbfr.to(self.device)
 
     @torch.no_grad()
-    def enhance(self, img,age_vector, has_aligned=True, only_center_face=False, paste_back=True):
+    def enhance(self, img,age_vector,gender_vector, has_aligned=True, only_center_face=False, paste_back=True):
         self.face_helper.clean_all()
         if has_aligned:  # the inputs are already aligned
             img = cv2.resize(img, (512, 512))
@@ -88,11 +88,12 @@ class DBFRer():
             cropped_face_t = img2tensor(cropped_face / 255., bgr2rgb=True, float32=True)
             normalize(cropped_face_t, (0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True)
             cropped_face_t = cropped_face_t.unsqueeze(0).to(self.device)
-
+            
             try:
-                output = self.dbfr(cropped_face_t,age_vector[np.newaxis,:],cropped_face_t, return_latents=True,return_rgb=False)
+
+                output = self.dbfr(cropped_face_t,age_vector,gender_vector,cropped_face_t, return_latents=True,return_rgb=False)
                 # convert to image
-                # print(output[2])
+                print(output[2])
                 style_code = output[2].cpu().numpy().squeeze(0)
                 restored_face = tensor2img(output[0].squeeze(0), rgb2bgr=True, min_max=(-1, 1))
             except RuntimeError as error:

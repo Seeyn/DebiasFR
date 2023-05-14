@@ -8,7 +8,8 @@ from basicsr.utils import imwrite
 import pickle
 from dbfr import DBFRer
 import sys
-# sys.path.append('/home/zelin/AttributeEncode/DBFR_modified')
+from dbfr.models import encoder_arch
+
 
 def main():
     """Inference demo for DBFR (for users).
@@ -21,6 +22,10 @@ def main():
         default='inputs/whole_imgs',
         help='Input image or folder. Default: inputs/whole_imgs')
     parser.add_argument('-o', '--output', type=str, default='results', help='Output folder. Default: results')
+    parser.add_argument('-p', '--pattern', type=str,default='LRlabel')
+    # parser.add_argument('--attribute', '--pattern', type=str,default='LRlabel')
+    parser.add_argument('--attribute', nargs='+', type=int, default=None)
+    
     
     args = parser.parse_args()
 
@@ -37,17 +42,20 @@ def main():
     # ------------------------ set up DBFR restorer ------------------------
   
 
-    
-    model_path = './dbfr_g_60000.pth'
+    model_path = '/home/zelin/DebiasFR/dbfr/pretrained_models/net_g_50000.pth'
     restorer = DBFRer(
         model_path=model_path,
         upscale=2,
         channel_multiplier=2,
         bg_upsampler=None)
-    with open('./name2age.txt','rb') as f:
-        ages = pickle.load(f)
-    with open('./name2gender.txt','rb') as f:
-        genders = pickle.load(f)
+    LRpredictor = encoder_arch.ImageClassifier()
+    LRpredictor.load_state_dict(torch.load('./dbfr/pretrained_models/net_best_tuned.pth')['model_state_dict'])
+    LRpredictor.eval()
+    LRpredictor.cuda()
+
+    # ages = np.load('celeba_age_gt.npy',allow_pickle=True,encoding='bytes').item()
+    # genders = np.load('celeba_gender_gt.npy',allow_pickle=True,encoding='bytes').item()
+    
     group ={
     '0-2':0,
     '3-6':1,
@@ -66,27 +74,52 @@ def main():
         img_name = os.path.basename(img_path)
         print(f'Processing {img_name} ...')
         basename, ext = os.path.splitext(img_name)
-        input_img = cv2.imread(img_path, cv2.IMREAD_COLOR)
-        age = ages[int(img_path.split('/')[-1].split('.')[0])]
-        # age = '0-2'
-        age_vector = (0.2 * torch.randn(600)).cuda()
-        age_vector[group[age]*10:(group[age]+1)*10] += 1
-        # age_vector[550:] += 1
-        if genders[int(img_path.split('/')[-1].split('.')[0])] == 1:
-            age_vector[500:550] += 1
+        input_img = cv2.imread(img_path, cv2.IMREAD_COLOR)       
+        key = img_path.split('/')[-1].split('.')[0].encode()
+        pre_img = torch.from_numpy(input_img).float()/255.
+        print(pre_img.shape)
+        pre_img = torch.nn.functional.interpolate(pre_img.permute(2,0,1).unsqueeze(0),(256,256),mode='bilinear')
+        pre_img = 2*((pre_img)-0.5)
+        pre_img = pre_img[:,[2,1,0],:,:]
+        lr_age_pre,lr_gender_pre = LRpredictor(pre_img.cuda())
+        if args.attribute is None:
+            if args.predict=='Top2':
+                value,index = torch.topk(lr_age_pre[0],2)
+                value = torch.nn.functional.softmax(value)
+                age_vector = torch.zeros((1,10)).cuda()
+                gender_vector = torch.zeros((1,2)).cuda()
+                age_vector[0,index] = value
+                value,index = torch.topk(lr_gender_pre[0],2)
+                value = torch.nn.functional.softmax(value)
+                gender_vector[0,index] = value
+            elif args.predict=='LRlabel':
+                tmp_age = lr_age_pre[0].argmax()
+                tmp_gender = lr_gender_pre[0].argmax()
+                age_vector = torch.zeros((1,10)).cuda()
+                gender_vector = torch.zeros((1,2)).cuda()
+                age_vector[0,tmp_age]=1
+                gender_vector[0,tmp_gender] = 1
+            elif args.predict=='GTlabel':
+                age_vector = torch.zeros((1,10)).cuda()
+                gender_vector = torch.zeros((1,2)).cuda()
+                age_vector[0,group[str(ages[key],'utf-8')]]=1
+                gender_vector[0,genders[key]] = 1
         else:
-            age_vector[550:] += 1
-        # restore faces and background if necessary
-        cropped_faces, restored_faces, restored_img = restorer.enhance(
-            input_img,age_vector, has_aligned=True, paste_back=True)
+            tmp_age, tmp_gender = args.attribute
+            age_vector = torch.zeros((1,10)).cuda()
+            gender_vector = torch.zeros((1,2)).cuda()
+            age_vector[0,tmp_age]=1
+            gender_vector[0,tmp_gender] = 1
 
+
+        print(age_vector,gender_vector)
+
+        cropped_faces, restored_faces ,style_code= restorer.enhance(
+                input_img,age_vector,gender_vector, has_aligned=True, paste_back=True)
+     
         # save faces
         for idx, (cropped_face, restored_face) in enumerate(zip(cropped_faces, restored_faces)):
-        
-            # save restored face
-            # if args.suffix is not None:
-            #     save_face_name = f'{basename}_{idx:02d}_{args.suffix}.png'
-            # else:
+
             save_face_name = f'{basename}_{idx:02d}.png'
             save_restore_path = os.path.join(args.output, 'restored_faces', save_face_name)
             imwrite(restored_face, save_restore_path)
