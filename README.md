@@ -1,5 +1,5 @@
 # Analyzing and Combating Attribute Bias for Face Restoration
-> [[Paper]()] &emsp; [[Supplementary]()] &emsp; [[Colab]()] &emsp;[Video] &emsp; [ [Poster] &emsp; [Slides]<br>
+> [[Paper]()] &emsp; [[Supplementary](https://drive.google.com/file/d/1FqAAC_c8mK6NO-FsDx0MkhvfdAirUsXs/view?usp=share_link)] &emsp; [[Colab]()] &emsp;[Video] &emsp; [ [Poster] &emsp; [Slides]<br>
 ## :wrench: Dependencies and Installation
 
 - Python >= 3.7 (Recommend to use [Anaconda](https://www.anaconda.com/download/#linux) or [Miniconda](https://docs.conda.io/en/latest/miniconda.html))
