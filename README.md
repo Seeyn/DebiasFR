@@ -6,17 +6,34 @@
 - [PyTorch >= 1.7](https://pytorch.org/)
 - Option: NVIDIA GPU + [CUDA](https://developer.nvidia.com/cuda-downloads)
 - Option: Linux
-## Model Zoo
+
+1. Clone repo
+
+    ```bash
+    git clone https://github.com/Seeyn/DebiasFR.git
+    cd DebiasFR
+    ```
+
+1. Install dependent packages
+
+    ```bash
+    pip install -r requirements.txt
+    pip install git+https://github.com/openai/CLIP.git
+    ```
+## 📖 Model Zoo
 
 |  Model    | Link     |      
 | ---- | ---- |
-|  DebiasFR   |  [Google Drive](https://drive.google.com/file/d/10DmjHUC_3GCzi4G1WBEYxYLtgbuHIYdm/view?usp=share_link)   |      
-|  Classifier    |  ToDo    |      
+|  DebiasFR   |  [Google Drive](https://drive.google.com/file/d/10DmjHUC_3GCzi4G1WBEYxYLtgbuHIYdm/view?usp=share_link)   |   
+|  StyleGAN   |  ToDo     |   
+|  Attribute-Predictor    |  ToDo    |      
+|  CLIP-Classifier    |  ToDo    |      
 
 
-## Environment
 
-## Inferrence
+
+
+## :zap: Inferrence
 
 
 ```
