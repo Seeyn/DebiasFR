@@ -31,6 +31,7 @@
 
 
 
+## :computer: Training
 
 
 ## :zap: Inferrence
