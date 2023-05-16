@@ -43,17 +43,14 @@ class DebiasFR(BaseModel):
             self.init_training_settings()
             
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        # self.clip_model, self.preprocess = clip.load("ViT-B/32", device=device)
-        # self.clip_model.eval()
-        # HR predoctpr
 
         self.clip_model = AttributeClassifier()
         self.clip_model.load_state_dict(torch.load('./pretrained_models/net_best.pth')['model_state_dict'])
         self.clip_model.eval()
         # LR predictor
 
-        self.LRpredictor = ImageClassifier()
-        self.LRpredictor.load_state_dict(torch.load('./pretrained_models/net029.pth')['model_state_dict'])
+        self.LRpredictor = ImageClassifier().to(device)
+        self.LRpredictor.load_state_dict(torch.load('./pretrained_models/net_best_tuned.pth')['model_state_dict'])
         self.LRpredictor.eval()
 
 
@@ -203,114 +200,100 @@ class DebiasFR(BaseModel):
         l_g_total = 0
         loss_dict = OrderedDict()
         if (current_iter % self.net_d_iters == 0 and current_iter > self.net_d_init_iters):
-            if np.random.uniform() < 0.2:
-                lr_age_pre,lr_gender_pre = self.LRpredictor(self.lq)
-                lr_age_pre = torch.nn.functional.softmax(lr_age_pre)
-                lr_gender_pre = torch.nn.functional.softmax(lr_gender_pre)
-                pseudo_output, _,_ = self.net_g(self.lq,lr_age_pre,lr_gender_pre,self.gt, input_age,return_latents=True, return_rgb=True)
+            
+            if np.random.uniform() < self.opt['train'].get('pseudo_prob', 0):
+                lr_age_pre,lr_gender_pre = self.LRpredictor(torch.nn.functional.interpolate(self.lq,(256,256)))
+                value,index = torch.topk(lr_age_pre[0],2)
+                value = torch.nn.functional.softmax(value)
+                age_vector = torch.zeros((1,10)).cuda()
+                gender_vector = torch.zeros((1,2)).cuda()
+                age_vector[0,index] = value
+                value,index = torch.topk(lr_gender_pre[0],2)
+                value = torch.nn.functional.softmax(value)
+                gender_vector[0,index] = value
+
+                pseudo_output, _,_ = self.net_g(self.lq,age_vector,gender_vector,self.gt, input_age,return_latents=True, return_rgb=True)                
                 pseudo_age_pre,pseudo_gender_pre,vector = self.clip_model(self.avg_pool(self.upsample(pseudo_output)))
                 #Classification loss
-                pseudo_age_loss = self.criterion(pseudo_age_pre,lr_age_pre)
-                pseudo_gender_loss = self.criterion(pseudo_gender_pre,lr_gender_pre)
-                
-                #LR pixel-wise loss 
+                pseudo_age_loss = self.criterion(pseudo_age_pre,age_vector)
+                pseudo_gender_loss = self.criterion(pseudo_gender_pre,gender_vector)
+                self.output = pseudo_output 
+                #LR pixel-wise loss（pseudo pair）
                 pseudo_tmp = []
-                for degradation_arg in zip(self.degradation_args):
+                for index,degradation_arg in enumerate(zip(*self.degradation_args)):
                     kernel,scale,noise,quality = degradation_arg
                     noise_new = noise[:int(noise[-1].item())]
                     original_length = int((noise[-1]/3).sqrt().item())
                     noise_new = noise_new.view(original_length,original_length,3)
-                    pseudo_tmp.append(self.Degrader(pseudo_output,kernel,scale,noise_new,quality))
+                    pseudo_tmp.append(self.Degrader(pseudo_output[index].unsqueeze(0),kernel,scale,noise_new,quality).squeeze(0))
                 pseudo_lq = torch.stack(pseudo_tmp) 
-                
                 pseudo_lq_pix = self.cri_pix(pseudo_lq,self.lq)
-                pseudo_lq_percep, pseudo_lq_style = self.cri_perceptual(pseudo_lq,self.lq)
-
-                l_g_total += pseudo_age_loss + pseudo_gender_loss+ pseudo_lq_pix + pseudo_lq_percep+ pseudo_lq_style
+                pseudo_class_weight =  self.opt['train'].get('pseudo_class_weight', 0)
+                degradation_weight =  self.opt['train'].get('degradation_weight', 0)
+          
+                l_g_total += pseudo_class_weight*(pseudo_age_loss + pseudo_gender_loss) + degradation_weight*(pseudo_lq_pix)
 
                 loss_dict['pseudo_age_loss'] = pseudo_age_loss 
                 loss_dict['pseudo_gender_loss'] = pseudo_gender_loss 
                 loss_dict['pseudo_lq_pix'] = pseudo_lq_pix 
-                loss_dict['pseudo_lq_percep'] = pseudo_lq_percep 
-                loss_dict['pseudo_lq_style'] = pseudo_lq_style
+        
+            # image pyramid loss weight
+            pyramid_loss_weight = self.opt['train'].get('pyramid_loss_weight', 0)
+                
+            if pyramid_loss_weight > 0 and current_iter > self.opt['train'].get('remove_pyramid_loss', float('inf')):
+                pyramid_loss_weight = 1e-12  # very small weight to avoid unused param error
+            if pyramid_loss_weight > 0:
+                b = self.age_gt.shape[0]
+                age_vector = torch.zeros((b,10)).cuda()
+                for i in range(b):
+                    age_vector[i][self.age_gt[i]] = 1
+                gender_vector = torch.zeros((b,2)).cuda()
+                for i in range(b):
+                    gender_vector[i][self.gender_gt[i]] = 1
+                self.output, out_rgbs,latent = self.net_g(self.lq,age_vector,gender_vector,self.gt, input_age,return_latents=True, return_rgb=True)
+                pyramid_gt = self.construct_img_pyramid()
             else:
-                # image pyramid loss weight
-                pyramid_loss_weight = self.opt['train'].get('pyramid_loss_weight', 0)
+                self.output, out_rgbs = self.net_g(self.lq, return_rgb=False)
+            #clip loss
+            # resize
+            out_c = self.avg_pool(self.upsample(self.output))
+            age_pre,gender_pre,vector = self.clip_model(out_c)
+
+            loss1 = self.criterion(age_pre,self.age_gt) 
+            loss2 = self.criterion(gender_pre,self.gender_gt)
                 
-                if pyramid_loss_weight > 0 and current_iter > self.opt['train'].get('remove_pyramid_loss', float('inf')):
-                    pyramid_loss_weight = 1e-12  # very small weight to avoid unused param error
-                if pyramid_loss_weight > 0:
-                    b = self.age_gt.shape[0]
-                    age_vector = torch.zeros((b,10)).cuda()
-                    for i in range(b):
-                        age_vector[i][self.age_gt[i]] = 1
-                    gender_vector = torch.zeros((b,2)).cuda()
-                    for i in range(b):
-                        gender_vector[i][self.gender_gt[i]] = 1
-                    self.output, out_rgbs,latent = self.net_g(self.lq,age_vector,gender_vector,self.gt, input_age,return_latents=True, return_rgb=True)
-                    pyramid_gt = self.construct_img_pyramid()
-                else:
-                    self.output, out_rgbs = self.net_g(self.lq, return_rgb=False)
-                #clip loss
-                # resize
-                out_c = self.avg_pool(self.upsample(self.output))
-                gt_c = self.avg_pool(self.upsample(self.gt))
+            l_class = (loss1+loss2) * self.opt['train'].get('class_weight', 0)
+            l_g_total += l_class
+            loss_dict['l_class'] = l_class
 
-                # c_gt = self.clip_model.encode_image(gt_c).detach()
-                # c_out = self.clip_model.encode_image(out_c)
-                # l_clip = self.cri_l1(c_out, c_gt) * 10
-                with torch.no_grad():
-                    _a,_g,vector_gt = self.clip_model(gt_c)
-                age_pre,gender_pre,vector = self.clip_model(out_c)
+            # pixel loss
+            if self.cri_pix:
+                l_g_pix = self.cri_pix(self.output, self.gt)
+                l_g_total += l_g_pix
+                loss_dict['l_g_pix'] = l_g_pix
 
-                loss1 = self.criterion(age_pre,self.age_gt) 
-                loss2 = self.criterion(gender_pre,self.gender_gt)
-                loss3 = (vector*vector_gt).mean()
-                #print(loss3.shape, (vector*vector_gt).shape,(vector**2).sum())
-                
-                l_class = (loss1+loss2) * self.opt['train'].get('class_weight', 0)
-                l_cos = loss3 * self.opt['train'].get('cos_weight', 0)
-                #print(self.opt['train'].get('class_weight', 0), self.opt['train'].get('cos_weight', 0))
-                l_g_total += l_cos
-                l_g_total += l_class
-                loss_dict['l_cos'] = l_cos
-                loss_dict['l_class'] = l_class
-                l_clip =  (loss1+loss2)+loss3
-                #print(self.opt['train'].get('attribute_weight', 0.1))
-                #l_g_total += self.opt['train'].get('attribute_weight', 0.1) * l_clip 
-                #loss_dict['l_clip'] = l_clip 
+            # image pyramid loss
+            if pyramid_loss_weight > 0:
+                for i in range(0, self.log_size - 2):
+                    l_pyramid = self.cri_l1(out_rgbs[i], pyramid_gt[i]) * pyramid_loss_weight
+                    l_g_total += l_pyramid
+                    loss_dict[f'l_p_{2**(i+3)}'] = l_pyramid
 
-                
+            # perceptual loss
+            if self.cri_perceptual:
+                l_g_percep, l_g_style = self.cri_perceptual(self.output, self.gt)
+                if l_g_percep is not None:
+                    l_g_total += l_g_percep
+                    loss_dict['l_g_percep'] = l_g_percep
+                if l_g_style is not None:
+                    l_g_total += l_g_style
+                    loss_dict['l_g_style'] = l_g_style
 
-
-                # pixel loss
-                if self.cri_pix:
-                    l_g_pix = self.cri_pix(self.output, self.gt)
-                    l_g_total += l_g_pix
-                    loss_dict['l_g_pix'] = l_g_pix
-
-                # image pyramid loss
-                if pyramid_loss_weight > 0:
-                    for i in range(0, self.log_size - 2):
-                        l_pyramid = self.cri_l1(out_rgbs[i], pyramid_gt[i]) * pyramid_loss_weight
-                        l_g_total += l_pyramid
-                        loss_dict[f'l_p_{2**(i+3)}'] = l_pyramid
-
-                # perceptual loss
-                if self.cri_perceptual:
-                    l_g_percep, l_g_style = self.cri_perceptual(self.output, self.gt)
-                    if l_g_percep is not None:
-                        l_g_total += l_g_percep
-                        loss_dict['l_g_percep'] = l_g_percep
-                    if l_g_style is not None:
-                        l_g_total += l_g_style
-                        loss_dict['l_g_style'] = l_g_style
-
-                # gan loss
-                fake_g_pred = self.net_d(self.output)
-                l_g_gan = self.cri_gan(fake_g_pred, True, is_disc=False)
-                l_g_total += l_g_gan
-                loss_dict['l_g_gan'] = l_g_gan
+            # gan loss
+            fake_g_pred = self.net_d(self.output)
+            l_g_gan = self.cri_gan(fake_g_pred, True, is_disc=False)
+            l_g_total += l_g_gan
+            loss_dict['l_g_gan'] = l_g_gan
 
             # prevent from crush
             if not (torch.any(torch.isnan(l_g_total)) or torch.any(torch.isinf(l_g_total))):
@@ -358,8 +341,19 @@ class DebiasFR(BaseModel):
             if hasattr(self, 'net_g_ema'):
                 self.net_g_ema.eval()
                 input_age =  self.opt['train'].get('input_age', False)
-                self.output, out_rgbs,latent = self.net_g_ema(self.lq,self.age,self.gender,self.gt, input_age,return_latents=True, return_rgb=True)
+                b = self.age_gt.shape[0]
+                age_vector = torch.zeros((b,10)).cuda()
+                for i in range(b):
+                    age_vector[i][self.age_gt[i]] = 1
+                gender_vector = torch.zeros((b,2)).cuda()
+                for i in range(b):
+                    gender_vector[i][self.gender_gt[i]] = 1
+                self.output, out_rgbs,latent = self.net_g_ema(self.lq,age_vector,gender_vector,self.gt, input_age,return_latents=True, return_rgb=True)
                 # self.output, _ = self.net_g_ema(self.lq)
+                out_c = self.avg_pool(self.upsample(self.output))
+                age_pre,gender_pre,vector = self.clip_model(out_c)
+                self.acc1 = int(age_pre[0].argmax() == self.age_gt[0])
+                self.acc2 = int(gender_pre[0].argmax() == self.gender_gt[0])
             else:
                 logger = get_root_logger()
                 logger.warning('Do not have self.net_g_ema, use self.net_g.')
@@ -383,16 +377,18 @@ class DebiasFR(BaseModel):
             self._initialize_best_metric_results(dataset_name)
             # zero self.metric_results
             self.metric_results = {metric: 0 for metric in self.metric_results}
-
+            self.best_metric_results[dataset_name]['age_acc'] = dict(better=True, val=float('-inf'), iter=-1)
+            self.best_metric_results[dataset_name]['gender_acc'] = dict(better=True, val=float('-inf'), iter=-1)
         metric_data = dict()
         if use_pbar:
             pbar = tqdm(total=len(dataloader), unit='image')
 
+        self.metric_results['age_acc'] = 0
+        self.metric_results['gender_acc'] = 0
         for idx, val_data in enumerate(dataloader):
             img_name = osp.splitext(osp.basename(val_data['lq_path'][0]))[0]
             self.feed_data(val_data)
             self.test()
-
             sr_img = tensor2img(self.output.detach().cpu(), min_max=(-1, 1))
             metric_data['img'] = sr_img
             if hasattr(self, 'gt'):
@@ -422,6 +418,8 @@ class DebiasFR(BaseModel):
                 # calculate metrics
                 for name, opt_ in self.opt['val']['metrics'].items():
                     self.metric_results[name] += calculate_metric(metric_data, opt_)
+                    self.metric_results['age_acc'] += self.acc1
+                    self.metric_results['gender_acc'] += self.acc2
             if use_pbar:
                 pbar.update(1)
                 pbar.set_description(f'Test {img_name}')
@@ -433,6 +431,7 @@ class DebiasFR(BaseModel):
                 self.metric_results[metric] /= (idx + 1)
                 # update the best metric result
                 self._update_best_metric_result(dataset_name, metric, self.metric_results[metric], current_iter)
+
 
             self._log_validation_metric_values(current_iter, dataset_name, tb_logger)
 

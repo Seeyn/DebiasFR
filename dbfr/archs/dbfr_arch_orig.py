@@ -455,9 +455,6 @@ class DBFR(nn.Module):
             narrow=narrow,
             sft_half=sft_half)
 
-        self.age_representation = nn.parameter.Parameter(torch.randn((10,16,512)))
-        self.gender_representation = nn.parameter.Parameter(torch.randn((2,16,512)))
-
         # load pre-trained stylegan2 model if necessary
         if decoder_load_path:
             self.stylegan_decoder.load_state_dict(
@@ -502,7 +499,7 @@ class DBFR(nn.Module):
                     ScaledLeakyReLU(0.2),
                     EqualConv2d(out_channels, sft_out_channels, 3, stride=1, padding=1, bias=True, bias_init_val=0),ScaledLeakyReLU(0.2)))
             '''
-        # self.mlp = MLP(600,512,256,8,weight_norm=True,normalize_mlp=True)
+        self.mlp = MLP(600,512,256,8,weight_norm=True,normalize_mlp=True)
         '''
         for _, param in self.condition_scale.named_parameters():
             param.requires_grad = False
@@ -520,7 +517,7 @@ class DBFR(nn.Module):
 
 
 
-    def forward(self, x,age,gender,y, input_age=True,return_latents=False, return_rgb=True, randomize_noise=True,style_codes=None,input_is_style=False):
+    def forward(self, x,age,y, input_age=True,return_latents=False, return_rgb=True, randomize_noise=True,style_codes=None,input_is_style=False):
         """Forward function for GFPGANBilinear.
 
         Args:
@@ -541,23 +538,16 @@ class DBFR(nn.Module):
 
         feat = self.final_conv(feat)
 
-        # if not input_age:
-        #     #original version
-        #     # style code
-        #     style_code = self.final_linear(feat.view(feat.size(0), -1))
+        if not input_age:
+            #original version
+            # style code
+            style_code = self.final_linear(feat.view(feat.size(0), -1))
 
-        #     if self.different_w:
-        #         style_code = style_code.view(style_code.size(0), -1, self.num_style_feat)
-        # else:
-        #     style_code = self.mlp(age)
-        
+            if self.different_w:
+                style_code = style_code.view(style_code.size(0), -1, self.num_style_feat)
+        else:
+            style_code = self.mlp(age)
 
-        style_code = self.final_linear(feat.view(feat.size(0), -1))
-        if self.different_w:
-            style_code = style_code.view(style_code.size(0), -1, self.num_style_feat)
-        latent_age = (age.unsqueeze(2).unsqueeze(2) * self.age_representation).sum(dim=1)
-        latent_gender = (gender.unsqueeze(2).unsqueeze(2) * self.gender_representation).sum(dim=1)
-        style_code += latent_age + latent_gender
         # decode
         for i in range(self.log_size - 2):
             # add unet skip

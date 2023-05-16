@@ -82,9 +82,9 @@ class FFHQDegradationDataset(data.Dataset):
         if self.gray_prob is not None:
             logger.info(f'Use random gray. Prob: {self.gray_prob}')
 
-        with open('/home/zelin/v100/DebiasFR/name2age.txt','rb') as f:
+        with open('./name2age.txt','rb') as f:
             self.ages = pickle.load(f)
-        with open('/home/zelin/v100/DebiasFR/name2gender.txt','rb') as f:
+        with open('./name2gender.txt','rb') as f:
             self.genders = pickle.load(f)
         self.group ={
         '0-2':0,
@@ -144,7 +144,7 @@ class FFHQDegradationDataset(data.Dataset):
         noise = np.float32(np.random.randn(*([int(w // scale), int(h // scale),3]))) * sigma / 255.
         noise_pass = noise.flatten()
         length = noise_pass.shape[0]
-        noise_new = torch.zeros(513*513*3)
+        noise_new = np.zeros(513*513*3)
         noise_new[:length] = noise_pass
         noise_new[-1] = length
 
@@ -169,7 +169,7 @@ class FFHQDegradationDataset(data.Dataset):
         normalize(img_lq, self.mean, self.std, inplace=True)
     
         #[kernel,scale,noise,quality]
-        return {'lq': img_lq.squeeze(0).detach(), 'gt': img_gt, 'gt_path': gt_path,'age': torch.zeros(1),'age_gt':torch.tensor(age_gt),'gender_gt':torch.tensor(gender_gt),'kernel':kernel,'scale':scale,'noise':noise_new,'quality':quality}
+        return {'lq': img_lq.squeeze(0).detach() , 'gt': img_gt, 'gt_path': gt_path,'age': torch.zeros(1),'age_gt':torch.tensor(age_gt),'gender_gt':torch.tensor(gender_gt),'kernel':kernel,'scale':scale,'noise':noise_new,'quality':quality}
 
     def __len__(self):
         return len(self.paths)

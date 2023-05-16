@@ -75,11 +75,13 @@ class AttributeClassifier(nn.Module):
         self.ageclassifier = MLP(512,10,256,8,weight_norm=False,normalize_mlp=False).to(device)
         self.genderclassifier =  MLP(512,2,256,8,weight_norm=False,normalize_mlp=False).to(device)
     
-    def forward(self,input):
+    def forward(self,input,out_represent=True):
 
         x = self.clip_model.encode_image(input).float()
         x = x/(torch.norm(x,dim=1).unsqueeze(1))
         age_pre = self.ageclassifier(x)
         gender_pre = self.genderclassifier(x)
-        
-        return age_pre, gender_pre,x
+        if out_represent:
+            return age_pre, gender_pre,x
+        else:
+            return age_pre, gender_pre

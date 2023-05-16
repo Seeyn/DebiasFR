@@ -1,0 +1,181 @@
+# general settings
+name: Feasibility_degradation_tune_lr_wpseudo
+model_type: DebiasFR
+num_gpu: auto  # officially, we use 4 GPUs
+manual_seed: 500000
+
+# dataset and data loader settings
+datasets:
+  train:
+    name: FFHQ
+    type: FFHQDegradationDataset
+    # dataroot_gt: datasets/ffhq/ffhq_512.lmdb
+    dataroot_gt: ~/datasets/train
+    io_backend:
+      # type: lmdb
+      type: disk
+
+    use_hflip: true
+    mean: [0.5, 0.5, 0.5]
+    std: [0.5, 0.5, 0.5]
+    out_size: 512
+
+    blur_kernel_size: 41
+    kernel_list: ['iso', 'aniso']
+    kernel_prob: [0.5, 0.5]
+    blur_sigma: [0.1, 10]
+    downsample_range: [1, 20]
+    noise_range: [0, 20]
+    jpeg_range: [60, 100]
+
+    # If you do not want colorization, please set
+    color_jitter_prob: ~
+    color_jitter_pt_prob: ~
+    gray_prob: 0.01
+    gt_gray: True
+
+    # data loader
+    use_shuffle: true
+    num_worker_per_gpu: 12
+    batch_size_per_gpu: 1
+    dataset_enlarge_ratio: 1
+    prefetch_mode: ~
+
+  val:
+    # Please modify accordingly to use your own validation
+    # Or comment the val block if do not need validation during training
+    name: validation
+    type: PairedAgeDataset
+    dataroot_lq: ~/image_degradation_lq_ffhq_val16x
+    dataroot_gt: ~/image_degradation_gt_ffhq_val16x
+    io_backend:
+      type: disk
+    mean: [0.5, 0.5, 0.5]
+    std: [0.5, 0.5, 0.5]
+    scale: 1
+
+# network structures
+network_g:
+  type: DBFR
+  out_size: 512
+  num_style_feat: 512
+  channel_multiplier: 2
+  decoder_load_path: ./pretrained_models/net_g_345000.pth
+  fix_decoder: true
+  num_mlp: 8
+  input_is_latent: true
+  different_w: true
+  narrow: 1
+  sft_half: false
+
+network_d:
+  type: StyleGAN2DiscriminatorClean
+  out_size: 512
+  channel_multiplier: 1
+
+
+# path
+path:
+  pretrain_network_g: ~
+  param_key_g: params_ema
+  strict_load_g: true
+  pretrain_network_d: ~
+  resume_state: ~
+
+
+# training settings
+train:
+  input_age: true
+  optim_g:
+    type: Adam
+    lr: !!float 2e-3
+  optim_d:
+    type: Adam
+    lr: !!float 2e-3
+  optim_component:
+    type: Adam
+    lr: !!float 2e-3
+
+  scheduler:
+    type: MultiStepLR
+    milestones: [400000,500000]
+    gamma: 0.5
+
+  total_iter: 600000
+  warmup_iter: -1  # no warm up
+
+  # losses
+  # pixel loss
+  pixel_opt:
+    type: L1Loss
+    loss_weight: !!float 1e-1
+    reduction: mean
+  # L1 loss used in pyramid loss, component style loss and identity loss
+  L1_opt:
+    type: L1Loss
+    loss_weight: 1
+    reduction: mean
+
+  # image pyramid loss
+  pyramid_loss_weight: 1
+  remove_pyramid_loss: 50000
+  # perceptual loss (content and style losses)
+  perceptual_opt:
+    type: PerceptualLoss
+    layer_weights:
+      # before relu
+      'conv1_2': 0.1
+      'conv2_2': 0.1
+      'conv3_4': 1
+      'conv4_4': 1
+      'conv5_4': 1
+    vgg_type: vgg19
+    use_input_norm: true
+    perceptual_weight: !!float 1
+    style_weight: 50
+    range_norm: true
+    criterion: l1
+  # gan loss
+  gan_opt:
+    type: GANLoss
+    gan_type: wgan_softplus
+    loss_weight: !!float 1e-1
+  # r1 regularization for discriminator
+  r1_reg_weight: 10
+
+
+  class_weight: 0.1
+  pseudo_prob: 0.4
+  pseudo_class_weight: 0.1
+  degradation_weight: 1
+
+  net_d_iters: 1
+  net_d_init_iters: 0
+  net_d_reg_every: 16
+
+# validation settings
+val:
+  val_freq: !!float 5e3
+  save_img: true
+
+  metrics:
+    psnr: # metric name
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+
+# logging settings
+logger:
+  print_freq: 100
+  save_checkpoint_freq: !!float 5e3
+  use_tb_logger: true
+  wandb:
+    project: ~
+    resume_id: ~
+
+# dist training settings
+dist_params:
+  backend: nccl
+  port: 29500
+
+find_unused_parameters: true
