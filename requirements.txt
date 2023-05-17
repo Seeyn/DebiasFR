@@ -1,14 +1,12 @@
-einops
+basicsr>=1.4.2
+facexlib>=0.2.5
 lmdb
-numpy<1.21  # numba requires numpy<1.21,>=1.17
+numpy
 opencv-python
 pyyaml
-scikit-learn
 scipy
 tb-nightly
-timm
 torch>=1.7
 torchvision
 tqdm
 yapf
-git+https://github.com/openai/CLIP.git
