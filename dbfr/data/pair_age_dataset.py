@@ -57,9 +57,9 @@ class PairedAgeDataset(data.Dataset):
                                                           self.opt['meta_info_file'], self.filename_tmpl)
         else:
             self.paths = paired_paths_from_folder([self.lq_folder, self.gt_folder], ['lq', 'gt'], self.filename_tmpl)
-        with open('./name2age.txt','rb') as f:
+        with open(opt['age_labels_path'],'rb') as f:
             self.ages = pickle.load(f)
-        with open('./name2gender.txt','rb') as f:
+        with open(opt['gender_labels_path'],'rb') as f:
             self.genders = pickle.load(f)
         self.group ={
         '0-2':0,

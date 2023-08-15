@@ -10,7 +10,7 @@ datasets:
     name: FFHQ
     type: FFHQDegradationDataset
     # dataroot_gt: datasets/ffhq/ffhq_512.lmdb
-    dataroot_gt: ~/datasets/train
+    dataroot_gt: ~/Datasets/FFHQ-Age/train
     io_backend:
       # type: lmdb
       type: disk
@@ -34,6 +34,10 @@ datasets:
     gray_prob: 0.01
     gt_gray: True
 
+    # set the path for attribute labels
+    age_labels_path: /home/zelin/v100/DebiasFR/name2age.txt
+    gender_labels_path: /home/zelin/v100/DebiasFR/name2gender.txt
+
     # data loader
     use_shuffle: true
     num_worker_per_gpu: 12
@@ -46,13 +50,22 @@ datasets:
     # Or comment the val block if do not need validation during training
     name: validation
     type: PairedAgeDataset
-    dataroot_lq: ~/image_degradation_lq_ffhq_val16x
-    dataroot_gt: ~/image_degradation_gt_ffhq_val16x
+    dataroot_lq: ~/v100/GFPGAN_origin/GFPGAN/tests/tests/image_degradation_lq_ffhq_val16x
+    dataroot_gt: ~/v100/GFPGAN_origin/GFPGAN/tests/tests/image_degradation_gt_ffhq_val16x
+    
+    # set the path for attribute labels
+    age_labels_path: /home/zelin/v100/DebiasFR/name2age.txt
+    gender_labels_path: /home/zelin/v100/DebiasFR/name2gender.txt
+
     io_backend:
       type: disk
     mean: [0.5, 0.5, 0.5]
     std: [0.5, 0.5, 0.5]
     scale: 1
+
+# set auxilary modules checkpoint
+clip_classifier: ./pretrained_models/Clip_classifier.pth
+attribute_predictor: ./pretrained_models/Attribute_predictor.pth
 
 # network structures
 network_g:
@@ -60,7 +73,7 @@ network_g:
   out_size: 512
   num_style_feat: 512
   channel_multiplier: 2
-  decoder_load_path: ./pretrained_models/net_g_345000.pth
+  decoder_load_path: ./pretrained_models/DebiasFR_stylegan.pth
   fix_decoder: true
   num_mlp: 8
   input_is_latent: true

@@ -82,10 +82,11 @@ class FFHQDegradationDataset(data.Dataset):
         if self.gray_prob is not None:
             logger.info(f'Use random gray. Prob: {self.gray_prob}')
 
-        with open('./name2age.txt','rb') as f:
+        with open(opt['age_labels_path'],'rb') as f:
             self.ages = pickle.load(f)
-        with open('./name2gender.txt','rb') as f:
+        with open(opt['gender_labels_path'],'rb') as f:
             self.genders = pickle.load(f)
+
         self.group ={
         '0-2':0,
         '3-6':1,
@@ -98,7 +99,7 @@ class FFHQDegradationDataset(data.Dataset):
         '50-69':8,
         '70-120':9
         }
-        self.Degrader = self.Degrader = Degradation(differentiable=False)
+        self.Degrader = Degradation(differentiable=False)
 
     def __getitem__(self, index):
         if self.file_client is None:

@@ -24,7 +24,7 @@ class HQDataset(data.Dataset):
         opt (dict): Config for train datasets. It contains the following keys:
             dataroot_gt (str): Data root path for gt.
             io_backend (dict): IO backend type and other kwarg.
-            mean (list | tuple): Image mean.
+            mean (list | tuple): Image mean. 
             std (list | tuple): Image std.
             use_hflip (bool): Whether to horizontally flip.
             Please see more options in the codes.
