@@ -42,14 +42,14 @@ def main():
     # ------------------------ set up DBFR restorer ------------------------
   
 
-    model_path = '/home/zelin/DebiasFR/dbfr/pretrained_models/net_g_50000.pth'
+    model_path = './pretrained_models/DebiasFR_v1.pth'
     restorer = DBFRer(
         model_path=model_path,
         upscale=2,
         channel_multiplier=2,
         bg_upsampler=None)
     LRpredictor = encoder_arch.ImageClassifier()
-    LRpredictor.load_state_dict(torch.load('./dbfr/pretrained_models/net_best_tuned.pth')['model_state_dict'])
+    LRpredictor.load_state_dict(torch.load('./pretrained_models/Attribute_predictor.pth')['model_state_dict'])
     LRpredictor.eval()
     LRpredictor.cuda()
 
@@ -77,13 +77,12 @@ def main():
         input_img = cv2.imread(img_path, cv2.IMREAD_COLOR)       
         key = img_path.split('/')[-1].split('.')[0].encode()
         pre_img = torch.from_numpy(input_img).float()/255.
-        print(pre_img.shape)
         pre_img = torch.nn.functional.interpolate(pre_img.permute(2,0,1).unsqueeze(0),(256,256),mode='bilinear')
         pre_img = 2*((pre_img)-0.5)
         pre_img = pre_img[:,[2,1,0],:,:]
         lr_age_pre,lr_gender_pre = LRpredictor(pre_img.cuda())
         if args.attribute is None:
-            if args.predict=='Top2':
+            if args.pattern=='Top2':
                 value,index = torch.topk(lr_age_pre[0],2)
                 value = torch.nn.functional.softmax(value)
                 age_vector = torch.zeros((1,10)).cuda()
@@ -92,14 +91,14 @@ def main():
                 value,index = torch.topk(lr_gender_pre[0],2)
                 value = torch.nn.functional.softmax(value)
                 gender_vector[0,index] = value
-            elif args.predict=='LRlabel':
+            elif args.pattern=='LRlabel':
                 tmp_age = lr_age_pre[0].argmax()
                 tmp_gender = lr_gender_pre[0].argmax()
                 age_vector = torch.zeros((1,10)).cuda()
                 gender_vector = torch.zeros((1,2)).cuda()
                 age_vector[0,tmp_age]=1
                 gender_vector[0,tmp_gender] = 1
-            elif args.predict=='GTlabel':
+            elif args.pattern=='GTlabel':
                 age_vector = torch.zeros((1,10)).cuda()
                 gender_vector = torch.zeros((1,2)).cuda()
                 age_vector[0,group[str(ages[key],'utf-8')]]=1
@@ -112,7 +111,6 @@ def main():
             gender_vector[0,tmp_gender] = 1
 
 
-        print(age_vector,gender_vector)
 
         cropped_faces, restored_faces ,style_code= restorer.enhance(
                 input_img,age_vector,gender_vector, has_aligned=True, paste_back=True)
