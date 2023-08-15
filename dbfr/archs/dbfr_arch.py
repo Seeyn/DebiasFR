@@ -473,11 +473,11 @@ class DBFR(nn.Module):
                     if 'cal'  in _ or 'ad'  in _:
                         param.requires_grad = True
                         num += 1
-                        print(_)
+                        #print(_)
                 else:
                     num += 1
-                    print(_)
-            print(num)
+                    #print(_)
+            #print(num)
         # for SFT modulations (scale and shift)
         self.condition_in1 = nn.ModuleList()
         self.condition_in2 = nn.ModuleList()
@@ -490,31 +490,6 @@ class DBFR(nn.Module):
             
             self.condition_in1.append(Bottleneck(out_channels,sft_out_channels))
             self.condition_in2.append(Bottleneck(out_channels,sft_out_channels))
-            '''
-            self.condition_scale.append(
-                nn.Sequential(
-                    EqualConv2d(out_channels, out_channels, 3, stride=1, padding=1, bias=True, bias_init_val=0),
-                    ScaledLeakyReLU(0.2),
-                    EqualConv2d(out_channels, sft_out_channels, 3, stride=1, padding=1, bias=True, bias_init_val=0),ScaledLeakyReLU(0.2)))
-            self.condition_shift.append(
-                nn.Sequential(
-                    EqualConv2d(out_channels, out_channels, 3, stride=1, padding=1, bias=True, bias_init_val=0),
-                    ScaledLeakyReLU(0.2),
-                    EqualConv2d(out_channels, sft_out_channels, 3, stride=1, padding=1, bias=True, bias_init_val=0),ScaledLeakyReLU(0.2)))
-            '''
-        # self.mlp = MLP(600,512,256,8,weight_norm=True,normalize_mlp=True)
-        '''
-        for _, param in self.condition_scale.named_parameters():
-            param.requires_grad = False
-        for _, param in self.condition_shift.named_parameters():
-            param.requires_grad = False
-        for _, param in self.conv_body_first.named_parameters():
-            param.requires_grad = False
-        for _, param in self.conv_body_down.named_parameters():
-            param.requires_grad = False
-        for _, param in self.condition_scale.named_parameters():
-            param.requires_grad = False
-        '''
 
 
 

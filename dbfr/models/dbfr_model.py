@@ -215,7 +215,6 @@ class DebiasFR(BaseModel):
                 pseudo_output, _,_ = self.net_g(self.lq,age_vector,gender_vector,self.gt, input_age,return_latents=True, return_rgb=True)                 
                 pseudo_age_pre,pseudo_gender_pre,vector = self.clip_model(self.avg_pool(self.upsample(pseudo_output)))
                 #Classification loss
-                print(pseudo_age_pre.shape,age_vector.shape)
                 pseudo_age_loss = self.criterion(pseudo_age_pre,age_vector)
                 pseudo_gender_loss = self.criterion(pseudo_gender_pre,gender_vector)
                 self.output = pseudo_output 
